@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluetooth Siren App</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #sosButton {
+            font-size: 24px;
+            padding: 20px 40px;
+            background-color: red;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        #status {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Click the button to send SOS</div>
+    <button id="sosButton">SOS</button>
+
+    <script>
+        const sosButton = document.getElementById('sosButton');
+        const statusElement = document.getElementById('status');
+        let audioContext;
+        let oscillator;
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => console.log('Service Worker registered:', registration))
+                    .catch(error => console.log('Service Worker registration failed:', error));
+            });
+        }
+
+        sosButton.addEventListener('click', async () => {
+            try {
+                await requestBluetoothPermission();
+                await scanAndConnect();
+            } catch (error) {
+                console.error('Error:', error);
+                setStatus('Error: ' + error.message);
+            }
+        });
+
+        async function requestBluetoothPermission() {
+            if ('bluetooth' in navigator) {
+                try {
+                    const device = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: ['battery_service']
+                    });
+                    console.log('Bluetooth device selected:', device);
+                    return device;
+                } catch (error) {
+                    console.error('Bluetooth permission error:', error);
+                    throw error;
+                }
+            } else {
+                throw new Error('Web Bluetooth API is not supported in this browser.');
+            }
+        }
+
+        async function scanAndConnect() {
+            try {
+                const device = await requestBluetoothPermission();
+                await connectToDevice(device);
+                playSirenSound();
+                setStatus('SOS alert activated!');
+            } catch (error) {
+                console.error('Error:', error);
+                setStatus('Error: ' + error.message);
+            }
+        }
+
+        async function connectToDevice(device) {
+            try {
+                const server = await device.gatt.connect();
+                console.log('Connected to device:', device.name);
+                const service = await server.getPrimaryService('battery_service');
+                const characteristic = await service.getCharacteristic('battery_level');
+                await characteristic.writeValue(new Uint8Array([1])); // Send command
+                console.log('Command sent to device.');
+            } catch (error) {
+                console.error('Error connecting to device:', error);
+                throw error;
+            }
+        }
+
+        function playSirenSound() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            if (oscillator) {
+                oscillator.stop();
+            }
+
+            oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+            oscillator.connect(audioContext.destination);
+            oscillator.start();
+
+            setInterval(() => {
+                oscillator.frequency.setValueAtTime(
+                    oscillator.frequency.value === 440 ? 554.37 : 440,
+                    audioContext.currentTime
+                );
+            }, 400);
+        }
+
+        function setStatus(message) {
+            statusElement.textContent = message;
+        }
+    </script>
+</body>
+</html>
